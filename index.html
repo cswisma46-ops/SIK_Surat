@@ -406,6 +406,39 @@ const WP_TERMS = [
   {text:"Melaksanakan aturan pada Guideline Pekerjaan: Fit Out/ Renovasi/ Reinstatement Gedung Wisma 46."},
 ];
 
+/* ------------------------- Supabase cloud storage ------------------------- */
+// Shared online storage for all TR laptops. The Publishable Key is intended for
+// browser apps; access is still controlled by Supabase Row Level Security (RLS).
+const SUPABASE_URL = "https://rglvwysyusndgjwebkkp.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_OivcU8SnBRkqVlF9-WuAFw_2O3i6_xD";
+const SUPABASE_TABLE = "app_data";
+const SUPABASE_ROW_ID = 1;
+
+async function cloudGet(){
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?id=eq.${SUPABASE_ROW_ID}&select=data`, {
+    method:"GET",
+    headers:{
+      "apikey": SUPABASE_PUBLISHABLE_KEY
+    }
+  });
+  if(!res.ok) throw new Error(`Supabase GET ${res.status}: ${await res.text()}`);
+  const rows = await res.json();
+  return rows.length ? rows[0].data : null;
+}
+
+async function cloudSet(data){
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}`, {
+    method:"POST",
+    headers:{
+      "apikey": SUPABASE_PUBLISHABLE_KEY,
+      "Content-Type":"application/json",
+      "Prefer":"resolution=merge-duplicates,return=minimal"
+    },
+    body:JSON.stringify({id:SUPABASE_ROW_ID,data,updated_at:new Date().toISOString()})
+  });
+  if(!res.ok) throw new Error(`Supabase POST ${res.status}: ${await res.text()}`);
+}
+
 /* ------------------------------- App core ------------------------------- */
 const App = {
   state:null, view:"dashboard", loaded:false,
@@ -415,9 +448,12 @@ const App = {
 
   async init(){
     try{
-      const r = await window.storage.get("app-data", false);
-      this.state = r && r.value ? JSON.parse(r.value) : emptyState();
-    }catch(e){ this.state = emptyState(); }
+      const data = await cloudGet();
+      this.state = data && Object.keys(data).length ? data : emptyState();
+    }catch(e){
+      console.error("Supabase load error", e);
+      this.state = emptyState();
+    }
     if(!this.state.templates || !this.state.templates.length) this.state.templates = defaultTemplates();
     if(!this.state.tenants) this.state.tenants = defaultTenants();
     if(!this.state.settings) this.state.settings = defaultSettings();
@@ -429,7 +465,12 @@ const App = {
     this.render();
   },
   async persist(){
-    try{ await window.storage.set("app-data", JSON.stringify(this.state), false); }catch(e){ console.error("storage error", e); }
+    try{
+      await cloudSet(this.state);
+    }catch(e){
+      console.error("Supabase storage error", e);
+      this.toast("⚠ Data belum tersimpan ke database online. Cek koneksi Supabase.");
+    }
   },
   async save(){ await this.persist(); this.render(); },
   toast(msg){
